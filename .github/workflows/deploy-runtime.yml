@@ -17,20 +17,49 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup SSH key
+      - name: Setup SSH key with passphrase
+        env:
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SSH_PASSPHRASE: ${{ secrets.VM_SSH_PASSPHRASE }}
+          VM_HOST: ${{ secrets.VM_HOST }}
         run: |
+          set -e
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/retail_vm_key
+
+          printf "%s" "$VM_SSH_PRIVATE_KEY" > ~/.ssh/retail_vm_key
           chmod 600 ~/.ssh/retail_vm_key
-          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+          cat > ~/.ssh/askpass.sh << 'EOF'
+          #!/bin/sh
+          echo "$VM_SSH_PASSPHRASE"
+          EOF
+
+          chmod 700 ~/.ssh/askpass.sh
+
+          eval "$(ssh-agent -s)"
+
+          DISPLAY=:0 SSH_ASKPASS=~/.ssh/askpass.sh SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/retail_vm_key < /dev/null
+
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy runtime on Azure VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_ADMIN_USERNAME: ${{ secrets.VM_ADMIN_USERNAME }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
         run: |
-          ssh -i ~/.ssh/retail_vm_key ${{ secrets.VM_ADMIN_USERNAME }}@${{ secrets.VM_HOST }} "
+          set -e
+
+          ssh "$VM_ADMIN_USERNAME@$VM_HOST" "
             set -e
 
+            echo '==== Moving to /opt ===='
             cd /opt
 
+            echo '==== Clone or update repository ===='
             if [ ! -d retail-intelligence-platform ]; then
               git clone https://github.com/${{ github.repository }}.git retail-intelligence-platform
             fi
@@ -39,19 +68,27 @@ jobs:
             git fetch origin
             git reset --hard origin/main
 
+            echo '==== Creating runtime .env ===='
             mkdir -p runtime
 
-            echo 'POSTGRES_USER=${{ secrets.POSTGRES_USER }}' > runtime/.env
-            echo 'POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}' >> runtime/.env
-            echo 'POSTGRES_DB=${{ secrets.POSTGRES_DB }}' >> runtime/.env
+            echo 'POSTGRES_USER=${POSTGRES_USER}' > runtime/.env
+            echo 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}' >> runtime/.env
+            echo 'POSTGRES_DB=${POSTGRES_DB}' >> runtime/.env
 
+            echo '==== Starting Docker containers ===='
             cd runtime
 
             docker compose down
             docker compose up -d --build
 
-            sleep 15
+            echo '==== Waiting for containers ===='
+            sleep 20
 
+            echo '==== Docker status ===='
             docker ps
+
+            echo '==== API health check ===='
             curl -f http://localhost:8000/health
+
+            echo '==== Deployment completed successfully ===='
           "
