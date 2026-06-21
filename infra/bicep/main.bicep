@@ -85,10 +85,10 @@ resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
   name: publicIpName
   location: location
   sku: {
-    name: 'Basic'
+    name: 'Standard'
   }
   properties: {
-    publicIPAllocationMethod: 'Dynamic'
+    publicIPAllocationMethod: 'Static'
   }
 }
 
