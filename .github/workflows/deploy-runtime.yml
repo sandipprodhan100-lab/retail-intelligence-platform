@@ -1,4 +1,4 @@
-name: Deploy Runtime to Azure VM
+name: 05 - Deploy Runtime to Azure VM
 
 on:
   workflow_dispatch:
@@ -17,78 +17,70 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup SSH key with passphrase
-        env:
-          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          VM_SSH_PASSPHRASE: ${{ secrets.VM_SSH_PASSPHRASE }}
-          VM_HOST: ${{ secrets.VM_HOST }}
-        run: |
-          set -e
-
-          mkdir -p ~/.ssh
-
-          printf "%s" "$VM_SSH_PRIVATE_KEY" > ~/.ssh/retail_vm_key
-          chmod 600 ~/.ssh/retail_vm_key
-
-          cat > ~/.ssh/askpass.sh << 'EOF'
-          #!/bin/sh
-          echo "$VM_SSH_PASSPHRASE"
-          EOF
-
-          chmod 700 ~/.ssh/askpass.sh
-
-          eval "$(ssh-agent -s)"
-
-          DISPLAY=:0 SSH_ASKPASS=~/.ssh/askpass.sh SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/retail_vm_key < /dev/null
-
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
-
-      - name: Deploy runtime on Azure VM
+      - name: Setup SSH key and deploy runtime
         env:
           VM_HOST: ${{ secrets.VM_HOST }}
           VM_ADMIN_USERNAME: ${{ secrets.VM_ADMIN_USERNAME }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SSH_PASSPHRASE: ${{ secrets.VM_SSH_PASSPHRASE }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
         run: |
           set -e
 
+          echo "==== Preparing SSH key ===="
+          mkdir -p ~/.ssh
+
+          printf "%s" "$VM_SSH_PRIVATE_KEY" > ~/.ssh/retail_vm_key
+          chmod 600 ~/.ssh/retail_vm_key
+
+          cat > ~/.ssh/askpass.sh << 'ASKPASS'
+          #!/bin/sh
+          echo "$VM_SSH_PASSPHRASE"
+          ASKPASS
+
+          chmod 700 ~/.ssh/askpass.sh
+
+          echo "==== Starting SSH agent ===="
+          eval "$(ssh-agent -s)"
+
+          echo "==== Adding SSH key to agent ===="
+          DISPLAY=:0 SSH_ASKPASS=~/.ssh/askpass.sh SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/retail_vm_key < /dev/null
+
+          echo "==== Adding VM to known_hosts ===="
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+          echo "==== Testing SSH connection ===="
+          ssh "$VM_ADMIN_USERNAME@$VM_HOST" "whoami && hostname"
+
+          echo "==== Deploying runtime on Azure VM ===="
           ssh "$VM_ADMIN_USERNAME@$VM_HOST" "
             set -e
 
-            echo '==== Moving to /opt ===='
             cd /opt
 
-            echo '==== Clone or update repository ===='
             if [ ! -d retail-intelligence-platform ]; then
-              git clone https://github.com/${{ github.repository }}.git retail-intelligence-platform
+              git clone https://github.com/sandipprodhan100-lab/retail-intelligence-platform.git retail-intelligence-platform
             fi
 
             cd retail-intelligence-platform
             git fetch origin
             git reset --hard origin/main
 
-            echo '==== Creating runtime .env ===='
             mkdir -p runtime
 
             echo 'POSTGRES_USER=${POSTGRES_USER}' > runtime/.env
             echo 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}' >> runtime/.env
             echo 'POSTGRES_DB=${POSTGRES_DB}' >> runtime/.env
 
-            echo '==== Starting Docker containers ===='
             cd runtime
 
             docker compose down
             docker compose up -d --build
 
-            echo '==== Waiting for containers ===='
             sleep 20
 
-            echo '==== Docker status ===='
             docker ps
-
-            echo '==== API health check ===='
             curl -f http://localhost:8000/health
-
-            echo '==== Deployment completed successfully ===='
           "
