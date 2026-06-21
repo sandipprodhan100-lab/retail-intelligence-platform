@@ -1,0 +1,52 @@
+name: 02 - App Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      vm_public_ip:
+        description: 'Azure VM public IP address'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-app:
+    name: Deploy FastAPI and PostgreSQL
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ github.event.inputs.vm_public_ip }}" >> ~/.ssh/known_hosts
+
+      - name: Copy application files to VM
+        run: |
+          ssh ${{ secrets.VM_ADMIN_USERNAME }}@${{ github.event.inputs.vm_public_ip }} "sudo mkdir -p /opt/retail-intelligence-platform && sudo chown -R ${{ secrets.VM_ADMIN_USERNAME }}:${{ secrets.VM_ADMIN_USERNAME }} /opt/retail-intelligence-platform"
+          rsync -av app scripts ${{ secrets.VM_ADMIN_USERNAME }}@${{ github.event.inputs.vm_public_ip }}:/opt/retail-intelligence-platform/
+
+      - name: Create environment file on VM
+        run: |
+          ssh ${{ secrets.VM_ADMIN_USERNAME }}@${{ github.event.inputs.vm_public_ip }} "cat > /opt/retail-intelligence-platform/app/.env <<EOF
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          EOF"
+
+      - name: Install runtime and deploy containers
+        run: |
+          ssh ${{ secrets.VM_ADMIN_USERNAME }}@${{ github.event.inputs.vm_public_ip }} "bash /opt/retail-intelligence-platform/scripts/install_vm_runtime.sh"
+          ssh ${{ secrets.VM_ADMIN_USERNAME }}@${{ github.event.inputs.vm_public_ip }} "cd /opt/retail-intelligence-platform/app && docker compose --env-file .env up -d --build"
+
+      - name: Health check
+        run: |
+          sleep 20
+          curl -fsS http://${{ github.event.inputs.vm_public_ip }}:8000/api/health

@@ -1,0 +1,9 @@
+.env
+*.tfstate
+*.tfstate.*
+.terraform/
+*.pem
+id_rsa
+id_rsa.pub
+__pycache__/
+.venv/

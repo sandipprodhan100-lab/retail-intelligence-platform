@@ -1,0 +1,33 @@
+services:
+  retail-postgres:
+    image: postgres:16-alpine
+    container_name: retail-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - retail_pg_data:/var/lib/postgresql/data
+      - ./db/ddl.sql:/docker-entrypoint-initdb.d/01-ddl.sql
+      - ./db/seed_data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql
+
+  retail-api:
+    build: .
+    container_name: retail-api
+    restart: unless-stopped
+    depends_on:
+      - retail-postgres
+    environment:
+      POSTGRES_HOST: retail-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "8000:8000"
+
+volumes:
+  retail_pg_data:

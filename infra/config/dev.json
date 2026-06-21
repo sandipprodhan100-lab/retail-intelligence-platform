@@ -1,0 +1,14 @@
+{
+  "environment": "dev",
+  "location": "uksouth",
+  "resourceGroupName": "rg-retail-intg-dev",
+  "namePrefix": "retailintgdev",
+  "adminUsername": "azureadmin",
+  "vmSize": "Standard_B2s",
+  "allowedSshCidr": "0.0.0.0/0",
+  "tags": {
+    "project": "retail-intelligence-platform",
+    "environment": "dev",
+    "owner": "sandip"
+  }
+}

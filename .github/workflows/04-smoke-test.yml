@@ -1,0 +1,21 @@
+name: 04 - Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      vm_public_ip:
+        description: 'Azure VM public IP address'
+        required: true
+        type: string
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: API health check
+        run: |
+          curl -fsS http://${{ github.event.inputs.vm_public_ip }}:8000/api/health
+
+      - name: Root endpoint check
+        run: |
+          curl -fsS http://${{ github.event.inputs.vm_public_ip }}:8000/

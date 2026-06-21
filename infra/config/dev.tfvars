@@ -1,0 +1,6 @@
+location          = "uksouth"
+resource_group    = "rg-retail-intg-dev"
+name_prefix       = "retailintgdev"
+admin_username    = "azureadmin"
+vm_size           = "Standard_B2s"
+allowed_ssh_cidr  = "0.0.0.0/0"

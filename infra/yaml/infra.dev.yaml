@@ -1,0 +1,9 @@
+# YAML mode is a config-driven Azure CLI deployment example.
+# It is not a native Azure IaC language like Bicep or Terraform.
+environment: dev
+location: uksouth
+resourceGroupName: rg-retail-intg-dev
+namePrefix: retailintgdev
+adminUsername: azureadmin
+vmSize: Standard_B2s
+allowedSshCidr: 0.0.0.0/0

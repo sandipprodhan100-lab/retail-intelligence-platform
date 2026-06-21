@@ -1,0 +1,93 @@
+name: 01 - Infra Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+      engine:
+        description: 'Infrastructure engine'
+        required: true
+        default: 'bicep'
+        type: choice
+        options:
+          - bicep
+          - terraform
+          - yaml
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_RESOURCE_GROUP: rg-retail-intg-dev
+  AZURE_LOCATION: uksouth
+
+jobs:
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create resource group
+        run: |
+          az group create \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --location "$AZURE_LOCATION"
+
+      - name: Deploy with Bicep
+        if: ${{ github.event.inputs.engine == 'bicep' }}
+        run: |
+          az deployment group create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/config/dev.bicepparam \
+            --parameters sshPublicKey="${{ secrets.VM_SSH_PUBLIC_KEY }}"
+
+      - name: Setup Terraform
+        if: ${{ github.event.inputs.engine == 'terraform' }}
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Deploy with Terraform
+        if: ${{ github.event.inputs.engine == 'terraform' }}
+        working-directory: infra/terraform
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+        run: |
+          terraform init
+          terraform fmt -check
+          terraform validate
+          terraform apply -auto-approve -var-file ../config/dev.tfvars
+
+      - name: Install yq for YAML mode
+        if: ${{ github.event.inputs.engine == 'yaml' }}
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Deploy with YAML config and Azure CLI
+        if: ${{ github.event.inputs.engine == 'yaml' }}
+        env:
+          VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+        run: |
+          infra/yaml/deploy_from_yaml.sh infra/yaml/infra.dev.yaml
